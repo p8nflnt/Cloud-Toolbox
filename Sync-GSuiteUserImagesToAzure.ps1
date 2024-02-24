@@ -73,7 +73,7 @@ function HandleImageUpdate {
         [Parameter(Mandatory=$true)]
         [string]$userUPN,                # user principal name
         [Parameter(Mandatory=$true)]
-        [string]$fileExt          # image format file extension
+        [string]$fileExt                 # image format file extension
     )
     # prod ms graph url
     $graphUrl = "https://graph.microsoft.com/v1.0"
