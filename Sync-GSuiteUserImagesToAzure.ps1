@@ -20,7 +20,7 @@ Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
 $scriptPath = Split-Path ($MyInvocation.MyCommand.Source) -Parent
 #===================================================================================================================================
 # specify domain portion found in target user principal names
-$upnDomain = "@domain.com"
+$upnDomain = "example@domain.com"
 
 # connect to ms graph w/ appropriate permissions
 Connect-MgGraph -Scopes 'User.ReadWrite.All' -NoWelcome
