@@ -9,7 +9,8 @@
     DateCreated: 2024-February
 
 .LINK
-    https://
+    https://github.com/p8nflnt/Cloud-Toolbox/blob/main/Sync-GSuiteUserImagesToAzure.ps1
+    https://paytonflint.com/cloud-synchronize-profile-photos-between-federated-domains-google-azure/
 #>
 
 # clear variables for repeatability
