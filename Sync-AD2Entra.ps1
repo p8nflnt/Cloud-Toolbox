@@ -9,7 +9,8 @@
     DateCreated: 2024-Mar
 
 .LINK
-    https://youtu.be/dQw4w9WgXcQ?si=mFplzW-sd_qkIEB1
+    https://github.com/p8nflnt/Cloud-Toolbox/blob/main/Sync-AD2Entra.ps1
+    https://paytonflint.com/iam-powershell-manual-entra-connect-sync-via-script/
 #>
 
 # original hash string for integrity check
