@@ -10,7 +10,7 @@
     DateCreated: 2024-Apr
 
 .LINK
-    https://youtu.be/dQw4w9WgXcQ?si=mFplzW-sd_qkIEB1
+    https://github.com/p8nflnt/Cloud-Toolbox/blob/main/PSG-SearchAndDestroy.ps1
 #>
 
 # import message events from .CSV file
