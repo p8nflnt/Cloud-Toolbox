@@ -11,6 +11,7 @@
 
 .LINK
     https://github.com/p8nflnt/Cloud-Toolbox/blob/main/PSG-SearchAndDestroy.ps1
+    https://paytonflint.com/cloud-search-and-destroy-malicious-emails-from-end-users-g-suite-mailboxes/
 #>
 
 # import message events from .CSV file
