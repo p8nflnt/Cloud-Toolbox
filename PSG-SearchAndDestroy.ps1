@@ -28,7 +28,7 @@ $messageEvents | ForEach-Object {
     $rfc822MsgId = ($_."Message ID".Replace('<', '').Replace('>', ''))
 
     # add Rfc822MsgId property to object containing the modified Id
-    $_ | Add-Member -Name 'Rfc822MsgId' -Type NoteProperty -Value $rfc822MsgId -Force
+    $_ | Add-Member -Name 'Rfc822MsgId' -Type NoteProperty -Value $rfc822MsgId -Force -Confirm:$false
 }
 
 # get each message's Google id
