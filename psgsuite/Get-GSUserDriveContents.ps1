@@ -10,7 +10,7 @@
     DateCreated: 2024-May
 
 .LINK
-    https://youtu.be/dQw4w9WgXcQ?si=mFplzW-sd_qkIEB1
+    https://github.com/p8nflnt/Cloud-Toolbox/blob/main/psgsuite/Get-GSUserDriveContents.ps1
 #>
 
 # Clear variables for repeatability
