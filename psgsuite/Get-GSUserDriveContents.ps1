@@ -343,12 +343,12 @@ function Get-GSUserDriveContents {
 
     # get all dir info if not already available
     if ($allDirs -eq $null) {
-        $allDirs  = Get-GSDriveFileList -User $user -Filter "mimeType = 'application/vnd.google-apps.folder'"
+        $allDirs  = Get-GSDriveFileList -User $user -Filter "mimeType = 'application/vnd.google-apps.folder'" -ErrorAction SilentlyContinue
     }
 
     # get all file info if not already available
     if ($allFiles -eq $null) {
-        $allFiles = Get-GSDriveFileList -User $user -Filter "mimeType != 'application/vnd.google-apps.folder'"
+        $allFiles = Get-GSDriveFileList -User $user -Filter "mimeType != 'application/vnd.google-apps.folder'" -ErrorAction SilentlyContinue
     }
 
     # initialize $allDirs hashtable
