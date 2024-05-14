@@ -3,7 +3,7 @@
     Synchronize user profile photos from GSuite to Azure. Requires PSGSuite/Microsoft.Graph
 
 .NOTES
-    Name: Sync-GSuiteUserImagesToAzure
+    Name: Sync-GSAvatarsToAzure
     Author: Payton Flint
     Version: 1.0
     DateCreated: 2024-February
