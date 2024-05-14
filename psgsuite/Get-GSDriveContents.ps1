@@ -17,7 +17,7 @@
 Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
 
 # retrieve user's Google Drive contents in locally reconstructed directory structure
-function Get-GSUserDriveContents {
+function Get-GSDriveContents {
     param (
         [string]$user,
         [string]$driveId,
@@ -431,4 +431,4 @@ $updateFreq = 10  # time interval in seconds to update progress
 $throttleLimit = 50 # desired number of concurrent downloads
 
 # execute function
-Get-GSUserDriveContents -user $user -driveId $driveId -outFileRoot $outFileRoot -updateFreq $updateFreq -throttleLimit $throttleLimit
+Get-GSDriveContents -user $user -driveId $driveId -outFileRoot $outFileRoot -updateFreq $updateFreq -throttleLimit $throttleLimit
