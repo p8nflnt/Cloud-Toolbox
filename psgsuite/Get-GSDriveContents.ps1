@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
-    Retrieve Google Drive contents by userPrincipalName or driveId 
-    and places them in a local reconstruction of their directory structure
+    Retrieves Google Drive contents by userPrincipalName or driveId 
+    and places them in a reconstruction of their directory structure
+    in a specified root directory
 
 .NOTES
     Name: Get-GSDriveContents
