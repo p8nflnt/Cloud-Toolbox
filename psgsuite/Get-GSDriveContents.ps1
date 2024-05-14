@@ -1,16 +1,16 @@
 <#
 .SYNOPSIS
-    Retrieve's a user's Google Drive contents and places them in a local
-    reconstruction of their directory structure
+    Retrieve Google Drive contents by userPrincipalName or driveId 
+    and places them in a local reconstruction of their directory structure
 
 .NOTES
-    Name: Get-GSUserDriveContents
+    Name: Get-GSDriveContents
     Author: Payton Flint
     Version: 1.0
     DateCreated: 2024-May
 
 .LINK
-    https://github.com/p8nflnt/Cloud-Toolbox/blob/main/psgsuite/Get-GSUserDriveContents.ps1
+    https://github.com/p8nflnt/Cloud-Toolbox/blob/main/psgsuite/Get-GSDriveContents.ps1
 #>
 
 # Clear variables for repeatability
@@ -20,6 +20,7 @@ Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
 function Get-GSUserDriveContents {
     param (
         [string]$user,
+        [string]$driveId,
         [string]$outFileRoot,
         $updateFreq,
         $throttleLimit,
@@ -251,7 +252,6 @@ function Get-GSUserDriveContents {
                 $file,
                 $user
             )
-            
             # get file ID & path from key/value pair
             $fileId   = $file.Key
             $filePath = $file.Value
@@ -326,9 +326,36 @@ function Get-GSUserDriveContents {
     # initialize and start stopwatch for measuring total function runtime
     $totalRuntimeStopwatch = New-Object System.Diagnostics.Stopwatch
     $totalRuntimeStopwatch.Start()
+    
+    # if retrieving drive contents for user...
+    if (-not($driveId)) {
 
-    # get drive ID for the user
-    $driveId  = (Get-GSDriveFileList -User $user -ParentFolderId 'root' -Limit 1) | Select-Object -ExpandProperty Parents
+        # get root drive ID
+        $driveId  = (Get-GSDriveFileList -User $user -ParentFolderId 'root' -Limit 1) | Select-Object -ExpandProperty Parents
+
+        # get all dir info by userPrincipalName if not already available
+        if ($allDirs -eq $null) {
+            $allDirs  = Get-GSDriveFileList -User $user -Filter "mimeType = 'application/vnd.google-apps.folder'" -ErrorAction SilentlyContinue
+        }
+
+        # get all file info by userPrincipalName if not already available
+        if ($allFiles -eq $null) {
+            $allFiles = Get-GSDriveFileList -User $user -Filter "mimeType != 'application/vnd.google-apps.folder'" -ErrorAction SilentlyContinue
+        }
+
+    # if retrieving drive contents by drive id...
+    } else {
+
+        # get all dir info by drive id if not already available
+        if ($allDirs -eq $null) {
+            $allDirs  = Get-GSDriveFileList -TeamDriveId $driveId -IncludeTeamDriveItems -Filter "mimeType = 'application/vnd.google-apps.folder'" -ErrorAction SilentlyContinue
+        }
+
+        # get all file info by drive id if not already available
+        if ($allFiles -eq $null) {
+            $allFiles = Get-GSDriveFileList -TeamDriveId $driveId -IncludeTeamDriveItems -Filter "mimeType != 'application/vnd.google-apps.folder'" -ErrorAction SilentlyContinue
+        }
+    }
 
     # set parameter defaults for optional parameters
     # default time interval in seconds to update progress
@@ -339,16 +366,6 @@ function Get-GSUserDriveContents {
     # default number of concurrent downloads/runspaces
     if ($throttleLimit -eq $null) {
         $throttleLimit = 50
-    }
-
-    # get all dir info if not already available
-    if ($allDirs -eq $null) {
-        $allDirs  = Get-GSDriveFileList -User $user -Filter "mimeType = 'application/vnd.google-apps.folder'" -ErrorAction SilentlyContinue
-    }
-
-    # get all file info if not already available
-    if ($allFiles -eq $null) {
-        $allFiles = Get-GSDriveFileList -User $user -Filter "mimeType != 'application/vnd.google-apps.folder'" -ErrorAction SilentlyContinue
     }
 
     # initialize $allDirs hashtable
@@ -408,9 +425,10 @@ function Get-GSUserDriveContents {
 
 # parameters for function execution
 $user = "<UserPrincipalName>"
+$driveId = "<DriveId>"
 $outFileRoot = "<FilePath>"
 $updateFreq = 10  # time interval in seconds to update progress
 $throttleLimit = 50 # desired number of concurrent downloads
 
 # execute function
-Get-GSUserDriveContents -user $user -outFileRoot $outFileRoot -updateFreq $updateFreq -throttleLimit $throttleLimit
+Get-GSUserDriveContents -user $user -driveId $driveId -outFileRoot $outFileRoot -updateFreq $updateFreq -throttleLimit $throttleLimit
