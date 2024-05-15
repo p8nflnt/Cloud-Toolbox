@@ -12,6 +12,7 @@
 
 .LINK
     https://github.com/p8nflnt/Cloud-Toolbox/blob/main/psgsuite/Get-GSDriveContents.ps1
+    https://paytonflint.com/cloud-retrieve-google-drive-contents-by-user-or-drive-id/
 #>
 
 # Clear variables for repeatability
