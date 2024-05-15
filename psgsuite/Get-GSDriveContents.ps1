@@ -129,7 +129,7 @@ function Get-GSDriveContents {
                 # calculate estimated time to completion
                 $remainingTime = ($totalBytes - $currentBytes) / $rateBytesPerSecond
                 $remainingTimeSpan = [timespan]::FromSeconds($remainingTime)
-                $formattedTime = $remainingTimeSpan.ToString("hh\:mm\:ss")
+                $formattedTime = $remainingTimeSpan.ToString("dd\:hh\:mm\:ss")
 
                 # format percentage
                 $formattedPercent = "{0:N2} % Complete" -f $percentComplete
