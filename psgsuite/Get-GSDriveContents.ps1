@@ -161,10 +161,15 @@ function Get-GSDriveContents {
         # get parent folder path from $dirMap hashtable
         $parentPath = $dirMap[$parentId]
 
+        # escape '[' or ']' characters in path
+        $parentPathEsc = $parentPath -replace '\[', '`[' -replace '\]', '`]'
+
         # if parent directory does not already exist, create it and print to console
-        if (-not (Test-Path -Path $parentPath)) {
+        if (-not (Test-Path -Path $parentPathEsc)) {
             New-Item -Path $parentPath -ItemType Directory -ErrorAction SilentlyContinue| Out-Null
             Write-Host "Creating directory: $parentPath"
+        } else {
+            Write-Host "Directory already exists: $parentPath"
         }
 
         # Check if there are any child directories for the current parent ID
@@ -236,11 +241,16 @@ function Get-GSDriveContents {
                     # build full path from parent's path and child's name
                     $fullPath = Join-Path -Path $filePath -ChildPath $fileName
                     
+                    # escape '[' or ']' characters in path
+                    $fullPathEsc = $fullPath -replace '\[', '`[' -replace '\]', '`]'
+                    
                     # if file does not already exist... 
-                    if (-not (Test-Path -Path $fullPath)) {
-
+                    if (-not (Test-Path -Path $fullPathEsc)) {
+                        Write-Host "File does not exist, adding to download list: $fullPath"
                         # add $fileID and its full path to $allFilesHT hashtable
                         $allFilesHT[$fileId] = $fullPath           
+                    } else {
+                        Write-Host "File already exists: $fullPath"
                     }
                 }
             }
