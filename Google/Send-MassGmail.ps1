@@ -1,3 +1,18 @@
+<#
+.SYNOPSIS
+    Insert an unread email into the Gmail inbox for each user specified in a .CSV file using a service account
+
+.NOTES
+    Name: Add-GmailMessageForList
+    Author: Payton Flint
+    Version: 1.0
+    DateCreated: 2024-Oct
+
+.LINK
+    https://github.com/p8nflnt/Cloud-Toolbox/blob/main/google/Add-GmailMessageForList.ps1
+    https://paytonflint.com/cloud-insert-unread-email-into-gmail-inboxes/
+#>
+
 # specify variables
 $from        = "<SENDER EMAIL>"    # Sender of email - Ex. no-reply@example.com
 $to          = "<RECIPIENT EMAIL>" # Recipient of email
