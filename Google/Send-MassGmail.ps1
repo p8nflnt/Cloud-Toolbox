@@ -9,8 +9,8 @@
     DateCreated: 2024-Oct
 
 .LINK
-    https://github.com/p8nflnt/Cloud-Toolbox/blob/main/google/Add-GmailMessageForList.ps1
-    https://paytonflint.com/cloud-insert-unread-email-into-gmail-inboxes/
+    https://github.com/p8nflnt/Cloud-Toolbox/blob/main/google/Send-MassGmail.ps1
+    https://paytonflint.com/cloud-enterprise-gmail-mass-mailer/
 #>
 
 # specify variables
