@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-    Use the Microsoft Graph beta endpoint to generate a hashtable 
-    of userPrincipalNames within a group and a boolean value for 
+    Use the Microsoft Graph beta endpoint to generate a hashtable of
+    userPrincipalNames within a group and a corresponding boolean value for 
     whether they have the "microsoftAuthenticator" auth method specified.
 
 .NOTES
