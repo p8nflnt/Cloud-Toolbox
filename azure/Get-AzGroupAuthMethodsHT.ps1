@@ -11,7 +11,7 @@
     DateCreated: 2024-Nov
 
 .LINK
-    https://youtu.be/dQw4w9WgXcQ?si=mFplzW-sd_qkIEB1
+    https://github.com/p8nflnt/Cloud-Toolbox/blob/main/azure/Get-AzGroupAuthMethodsHT.ps1
 #>
 
 function Get-AzGroupAuthMethodsHT {
