@@ -12,6 +12,7 @@
 
 .LINK
     https://github.com/p8nflnt/Cloud-Toolbox/blob/main/azure/Get-AzGroupAuthMethodsHT.ps1
+    https://paytonflint.com/azure-get-group-mfa-registration-info/
 #>
 
 function Get-AzGroupAuthMethodsHT {
