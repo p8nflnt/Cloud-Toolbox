@@ -12,7 +12,8 @@
     DateCreated: 2024-Dec
 
 .LINK
-    https://youtu.be/dQw4w9WgXcQ?si=mFplzW-sd_qkIEB1
+    https://github.com/p8nflnt/Cloud-Toolbox/blob/main/Google/Get-GoogleDriveFileMetadataDb.ps1
+    https://paytonflint.com/cloud-return-enterprise-wide-google-drive-file-metadata-as-sql-database/
 #>
 
 Function Test-ElevatedShell {
