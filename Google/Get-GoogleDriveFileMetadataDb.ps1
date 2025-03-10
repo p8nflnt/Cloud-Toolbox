@@ -761,10 +761,10 @@ function Import-SQLiteData {
     }
 }
 
-$keySecretName   = 'GoogleKey2'                               # secret name in SecretStore vault which contains Google service acct .json key
-$initUser        = 'pflint@missouriwestern.edu'               # User for retrieving user data
-$ignoreOrgUnits  = @('/UnenrolledStudents')                   # org units to exclude in user query
-$dbPath          = 'C:\GoogleTest5.db'                        # .db out file path (sqlite)
+$keySecretName   = '<SECRET NAME>'    # secret name in SecretStore vault which contains Google service acct .json key
+$initUser        = '<EMAIL ADDRESS>'  # User for retrieving user data
+$ignoreOrgUnits  = @('<ORG UNIT>')    # org units to exclude in user query
+$dbPath          = '<FILE PATH>'      # .db out file path (sqlite)
 
 # Only proceed if executed with elevated privileges
 if (Test-ElevatedShell) {
