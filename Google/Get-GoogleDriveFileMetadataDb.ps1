@@ -7,7 +7,7 @@
 .NOTES
     Name: Get-GoogleDriveFileMetadataDb.ps1
     Author: Payton Flint
-    Version: 1.4
+    Version: 1.5
     DateCreated: 2024-Dec
     LastModified: 2025-Mar
 
@@ -16,16 +16,27 @@
     https://paytonflint.com/cloud-return-enterprise-wide-google-drive-file-metadata-as-sql-database/
 #>
 
+# test if PowerShell version is 7 or greater (for ForEach-Object -Parallel support)
+function Check-PsVersion {
+    if ($psVersionTable.PSVersion.Major -ge 7) {
+        Write-Host "PowerShell major version is 7 or greater."
+        return $true
+    } else {
+        Write-Warning "PowerShell major version is less than 7."
+        return $false
+    }
+}
+
 # test if current session is running in elevated security context
 Function Test-ElevatedShell {
     # Check if the current user has administrative privileges
     $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-    if (-not $isAdmin) {
-        Write-Warning "Current session is not running in elevated security context."
-        return $false
-    } else {
+    if ($isAdmin) {
         Write-Host "Current session is running in elevated security context."
         return $true 
+    } else {
+        Write-Warning "Current session is not running in elevated security context."
+        return $false
     }
 }
 
@@ -37,20 +48,26 @@ Function Add-NuGet {
         Write-Host "NuGet is installed, but is not trusted."
         Write-Host "Setting NuGet as trusted source."
         Set-PackageSource -Name 'Nuget' -Trusted -Force
-    } elseif ($package -eq $null) {
+    }
+    elseif ($package -eq $null) {
         Write-Host "NuGet is not currently a registered source."
         Write-Host "Registering NuGet as trusted source."
         Register-PackageSource -Name Nuget -Location "https://www.nuget.org/api/v2" -ProviderName Nuget -Trusted -Force
-    } else {
+    }
+    else {
         Write-Host "NuGet is currently registered as a trusted source."
     }
 }
 
-# install SQLite executable using Chocolatey
-function Install-SQLite {
+# install SQLite executable using choco if not already
+# return exe path
+function Ensure-SQLite {
     # Check if SQLite is already installed
-    $sqliteInstalled = (Get-Command sqlite3 -ErrorAction SilentlyContinue) -ne $null
-    if (-not $sqliteInstalled) {
+    $sqliteInstalled = (Get-Command sqlite3 -ErrorAction SilentlyContinue)
+    if ($sqliteInstalled) {
+        Write-Host "SQLite installed."
+        return $($sqliteInstalled.Source)
+    } else {
         # Ensure script is run as admin
         if (Test-ElevatedShell) {
             # Ensure Chocolatey is installed
@@ -94,7 +111,7 @@ Function Ensure-Assemblies {
             Write-Verbose "Lib directory located at $libPath, searching for .DLL files."
 
             # search package source directory recursively for first *.DLL match
-            $dllPath = $(Get-ChildItem -Path $libPath -Recurse -Filter '*.dll' | Where-Object {$_.FullName -notlike "*interop*"} | Select-Object -First 1).FullName
+            $dllPath = $(Get-ChildItem -Path $libPath -Recurse -Filter '*.dll' | Where-Object { $_.FullName -notlike "*interop*" } | Select-Object -First 1).FullName
             
             # if .DLL is found...
             if ($dllPath) {
@@ -135,22 +152,26 @@ Function Ensure-Assemblies {
                                 Write-Verbose "Windows x64 interoperability .DLL located at $runtimesDll. Checking for .DLL at $runtimesDllTestPath"
 
                                 # if runtimes interoperability .DLL is not at destination path, copy it to there
-                                if (-not (Test-Path $runtimesDllTestPath)){
+                                if (-not (Test-Path $runtimesDllTestPath)) {
                                     Write-Verbose "Windows x64 interoperability .DLL not located at $runtimesDllTestPath. Copying from $runtimesDll."
                                     Copy-Item -Path $runtimesDll -Destination $dllParent
-                                } else {
+                                }
+                                else {
                                     Write-Verbose "Windows x64 interoperability .DLL located at $runtimesDllTestPath."
                                 }
                             
-                            } else {
+                            }
+                            else {
                                 Write-Verbose "Windows x64 interoperability .DLL not found."
                             }
 
-                        } else {
+                        }
+                        else {
                             Write-Verbose "Windows x64 runtime directory not found."
                         }
 
-                    } else {
+                    }
+                    else {
                         Write-Verbose "No runtimes directory found."
                     }
 
@@ -160,13 +181,15 @@ Function Ensure-Assemblies {
                     try {
                         Add-Type -Path $dllPath -ErrorAction Stop
                         return $true
-                    } catch {
+                    }
+                    catch {
                         # support for core assemblies to be loaded
                         Import-Module $dllPath -ErrorAction Stop
                         return $true
                     }
                 }
-            } else {
+            }
+            else {
                 Write-Verbose "No .DLL files found in $packageSource."
             }
         }
@@ -184,7 +207,8 @@ Function Ensure-Assemblies {
             # install package
             try {
                 Install-Package $packageName
-            } catch {
+            }
+            catch {
                 Install-Package $packageName -SkipDependencies
             }
             # get package information
@@ -217,25 +241,28 @@ Function Ensure-Assemblies {
                     # get appropriate stub package for PowerShell/.NET version
                     if ($psVersionTable.PsVersion.Major -ge 6) {
                         Write-Verbose "PowerShell version greater than 6, checking for appropriate stub package."
-                        $versionStubPackage = $stubPackages | Where-Object {$_ -like "*NetStandard*"} | Select-Object -First 1
-                    } else {
+                        $versionStubPackage = $stubPackages | Where-Object { $_ -like "*NetStandard*" } | Select-Object -First 1
+                    }
+                    else {
                         Write-Verbose "PowerShell version less than 6, checking for appropriate stub package."
-                        $versionStubPackage = $stubPackages | Where-Object {$_ -like "*NetFramework*"} | Select-Object -First 1
+                        $versionStubPackage = $stubPackages | Where-Object { $_ -like "*NetFramework*" } | Select-Object -First 1
                     }
                     
                     # if version-appropriate stub package found...
                     if ($versionStubPackage) {
                         Write-Verbose "Stub package found at $versionStubPackage."
                         Handle-Package -packageSource $versionStubPackage | Out-Null
-                    } else {
+                    }
+                    else {
                         Write-Verbose "No stub package found for current PowerShell version."
                     }
                 }
             }
-        } else {
+        }
+        else {
             Write-Verbose "Package not found."
         }
-        Write-Host "Assembly loaded for package $packageName."
+        Write-Output "Assembly loaded for package: $packageName."
     }
 }
 
@@ -252,7 +279,8 @@ Function Ensure-Modules {
             Write-Host "Installing module: $module..."
             Install-Module -Name $module -Force -ErrorAction Stop
             Write-Host "$module module installed successfully."
-        } else {
+        }
+        else {
             Write-Host "$module module is already installed."
         }
     }
@@ -281,7 +309,8 @@ Function Ensure-SecretStoreConfig {
     # Check if the secret exists in the SecretStore
     if (Get-SecretInfo -Name $secretName -ErrorAction SilentlyContinue) {
         Write-Host "Secret '$secretName' found in SecretStore."
-    } else {
+    }
+    else {
         Write-Host "Secret '$secretName' not found in SecretStore."
         
         # Prompt user for JSON keyfile path
@@ -295,7 +324,8 @@ Function Ensure-SecretStoreConfig {
             Set-Secret -Name $secretName -Secret $keyfileContent
 
             Write-Host "Secret '$secretName' has been securely stored in SecretStore."
-        } else {
+        }
+        else {
             Write-Error "Invalid path provided. Please ensure the file exists and try again."
         }
     }
@@ -308,28 +338,20 @@ Function Ensure-SecretStoreConfig {
 function Get-GoogleAccessToken {
     param (
         [Parameter(Mandatory = $true)]
-        [string]$scope,                # OAuth permission scope(s) - multiple scopes should be space-separated
+        [string]$scope,         # OAuth permission scope(s) - multiple scopes should be space-separated
 
         [Parameter(Mandatory = $true)]
-        [string]$keySecretName,        # Secret name which contains the the Google service account key file content
+        [secureString]$key,     # key file contents from secureStore vault as secureString
 
         [Parameter(Mandatory = $true)]
-        [string]$user,                 # Subject - Email of the user to impersonate
+        [string]$user,          # Subject - Email of the user to impersonate
 
-        [int]$ttl = 3600               # Token time-to-live in seconds (3600 default)
+        [int]$ttl = 3600        # Token time-to-live in seconds (3600 default)
     )
-
-    # Retrieve JSON keyfile content from SecretManagement as SecureString
-    $secureKeyFileContent = Get-Secret -Name $keySecretName
-
-    if (-not $secureKeyFileContent) {
-        Write-Error "Error: Failed to retrieve keyfile content from secret store."
-        return
-    }
 
     # Convert SecureString to plain text JSON
     $plainKeyFileContent = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
-        [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKeyFileContent)
+        [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($key)
     )
 
     # Parse JSON to extract necessary information
@@ -407,14 +429,14 @@ function Get-GoogleAccessToken {
 Function Get-Users {
     param (
         [Parameter(Mandatory = $true)]
-        [string]$user,                 # user to generate token for, impersonate, and retrieve user data
+        [string]$user,                   # user to generate token for, impersonate, and retrieve user data
 
         [Parameter(Mandatory = $true)]
-        [string]$keySecretName,        # Secret name which contains the the Google service account key file content
+        [secureString]$key,              # key file contents from secureStore vault as secureString
 
-        [switch]$Suspended,
-        [switch]$IgnoreNeverSignedIn,
-        [string[]]$IgnoreOrgUnits  # Accepts an array of Org Units to ignore
+        [switch]$Suspended,              # gets suspended users only
+        [switch]$IgnoreNeverSignedIn,    # ignore users that have never signed into the platform
+        [string[]]$IgnoreOrgUnits        # Accepts an array of Org Units to ignore
     )
 
     Write-Host "Retrieving user list from Google."
@@ -423,7 +445,7 @@ Function Get-Users {
     $tokenScope = "https://www.googleapis.com/auth/admin.directory.user.readonly"
 
     # Get new access token from Google for user
-    $accessToken = Get-GoogleAccessToken -scope $tokenScope -keySecretName $keySecretName -user $user
+    $accessToken = Get-GoogleAccessToken -scope $tokenScope -key $key -user $user
 
     #initialization
     $users = @()
@@ -482,16 +504,17 @@ function Convert-ToISO8601 {
 
         # get day & month length by index
         $monthLength = $($splitDate[0]).Length
-        $dayLength   = $($splitDate[1]).Length
+        $dayLength = $($splitDate[1]).Length
 
         # build month, day, & format
-        $i = 0; while ($i -lt $monthLength) { $i++; $month += 'M' };  $i = $null
-        $i = 0; while ($i -lt $dayLength)   { $i++; $day += 'd'; };   $i = $null
+        $i = 0; while ($i -lt $monthLength) { $i++; $month += 'M' }; $i = $null
+        $i = 0; while ($i -lt $dayLength) { $i++; $day += 'd'; }; $i = $null
 
         # detect am/pm & build format accordingly for 12 or 24 hr time support
         if ($date -match "AM|PM") {
             $format = "$month`/$day`/yyyy h:mm:ss tt"  # 12-hour format
-        } else {
+        }
+        else {
             $format = "$month`/$day`/yyyy H:mm:ss"  # 24-hour format
         }
 
@@ -510,7 +533,7 @@ function Get-UserOwnedDriveFileMetadata {
         $user,                          # user returned from Get-Users function
 
         [Parameter(Mandatory = $true)]
-        [string]$keySecretName,         # Secret name which contains the the Google service account key file content
+        [secureString]$key,             # key file contents from secureStore vault as secureString
 
         [string]$ModifiedAfter,         # DateTime in format "yyyy-MM-ddTHH:mm:ssZ"
         [string]$ModifiedBefore,        # DateTime in format "yyyy-MM-ddTHH:mm:ssZ"
@@ -522,7 +545,7 @@ function Get-UserOwnedDriveFileMetadata {
     $tokenScope = "https://www.googleapis.com/auth/drive.metadata.readonly"
 
     # generate access token for user
-    $accessToken = Get-GoogleAccessToken -scope $tokenScope -keySecretName $keySecretName -user $user.primaryEmail
+    $accessToken = Get-GoogleAccessToken -scope $tokenScope -key $key -user $user.primaryEmail
 
     # Initialize query components
     $query = @()
@@ -541,20 +564,23 @@ function Get-UserOwnedDriveFileMetadata {
     # Determine if a query is needed
     $queryString = if ($query.Count -gt 0) {
         "q=" + [System.Uri]::EscapeDataString($query -join " and ")
-    } else { "" }
+    }
+    else { "" }
 
     # Construct the base URI
-    $baseUri     = "https://www.googleapis.com/drive/v3/files"
+    $baseUri = "https://www.googleapis.com/drive/v3/files"
+    $pageSizeParam = "pageSize=1000"
     $fieldsParam = "fields=nextPageToken,files(id,name,owners,size,lastModifyingUser,modifiedTime,shared)"
-    $files       = @()
-    $pageToken   = $null
+    $files = @()
+    $pageToken = $null
 
     do {
         # Construct URI for this iteration
         $uri = if ($queryString -ne "") {
-            "$baseUri`?$queryString`&$fieldsParam"
-        } else {
-            "$baseUri`?$fieldsParam"
+            "$baseUri`?$queryString`&$fieldsParam`&$pageSizeParam"
+        }
+        else {
+            "$baseUri`?$fieldsParam`&$pageSizeParam"
         }
         if ($pageToken) {
             $uri += "&pageToken=$pageToken"
@@ -563,12 +589,13 @@ function Get-UserOwnedDriveFileMetadata {
         # Make the API call
         try {
             $response = Invoke-RestMethod -Uri $uri `
-                                          -Headers @{ "Authorization" = "Bearer $AccessToken" } `
-                                          -Method Get
+                -Headers @{ "Authorization" = "Bearer $AccessToken" } `
+                -Method Get
             $files += $response.files
         
             $pageToken = $response.nextPageToken
-        } catch {
+        }
+        catch {
             Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
         
             # Check if Response exists and try to capture the content early
@@ -577,10 +604,12 @@ function Get-UserOwnedDriveFileMetadata {
                 try {
                     $responseBody = $responseObject.Content.ReadAsStringAsync().Result
                     Write-Host "Response Body: $responseBody" -ForegroundColor Red
-                } catch {
+                }
+                catch {
                     Write-Host "Unable to read response content." -ForegroundColor Yellow
                 }
-            } else {
+            }
+            else {
                 Write-Host "No response content available." -ForegroundColor Yellow
             }
             break
@@ -596,21 +625,23 @@ function Get-UserOwnedDriveFileMetadata {
         $file | Add-Member -MemberType NoteProperty -Name ownerLastLogin -Value $user.lastLoginTime -Force
 
         # convert datetimes to ISO8601 standard (sqlite-friendly)
-        $file.modifiedTime   = Convert-ToISO8601 -date $file.modifiedTime
+        $file.modifiedTime = Convert-ToISO8601 -date $file.modifiedTime
         $file.ownerLastLogin = Convert-ToISO8601 -date $file.ownerLastLogin
     }
 
     # Filter for shared files
     if ($Shared -eq $false) {
         $files = $files | Where-Object { $_.shared -eq $false }
-    } elseif ($Shared -eq $true) {
+    }
+    elseif ($Shared -eq $true) {
         $files = $files | Where-Object { $_.shared -eq $true }
     }
 
     # Filter for lastModifiedByOwner
     if ($lastModifiedByOwner -eq $false) {
         $files = $files | Where-Object { $_.LastModifiedByOwner -eq $false }
-    } elseif ($lastModifiedByOwner -eq $true) {
+    }
+    elseif ($lastModifiedByOwner -eq $true) {
         $files = $files | Where-Object { $_.LastModifiedByOwner -eq $true }
     }
 
@@ -618,199 +649,271 @@ function Get-UserOwnedDriveFileMetadata {
     return $files | Select-Object -Property Id, Name, Size, Owner, OwnerLastLogin, LastModifiedByOwner, ModifiedTime, Shared
 }
 
-# import array of objects to sqlite database, minding data types
-# requires 'System.Data.Sqlite.Core' NuGet package
+# Import array of objects into SQLite database, using WAL journal_mode
+# Requires 'System.Data.Sqlite.Core' NuGet package
 function Import-SQLiteData {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
-        [string]$dbPath,                     # Path to the SQLite database file
+        [string]$dbPath,
 
         [Parameter(Mandatory = $true)]
-        [string]$tableName,                  # Table name to insert data into
+        [string]$tableName,
 
         [Parameter(Mandatory = $true)]
-        [object[]]$data                      # Array of objects to import
+        [object[]]$data,
+
+        [int]$BusyTimeout = 1800000 # Default timeout
     )
 
-    # Create and open SQLite connection
+    if (-not $data -or $data.Count -eq 0) {
+        Write-Error "Error: No data provided for import."
+        return
+    }
+
+    # Handle null values when determining column types
+    $columns = $data[0].PSObject.Properties.Name
+    $columnDefs = @{}
+
+    foreach ($col in $columns) {
+        $value = $data[0].$col
+        $colType = if ($value -eq $null) { 
+            "TEXT"  # Default to TEXT if the first value is null
+        } else {
+            switch ($value.GetType().Name) {
+                "Int32" { "INTEGER" }
+                "Int64" { "INTEGER" }
+                "Double" { "REAL" }
+                "Decimal" { "REAL" }
+                "Boolean" { "INTEGER" }
+                "DateTime" { "TEXT" }
+                "String" { if ($value -match '^(TRUE|FALSE)$') { "INTEGER" } else { "TEXT" } }
+                default { "TEXT" }
+            }
+        }
+        $columnDefs[$col] = $colType
+    }
+
+    $columnsSql = ($columns | ForEach-Object { "`"$_`"" }) -join ", "
+    $columnDefsSql = ($columnDefs.GetEnumerator() | ForEach-Object { "`"$($_.Key)`" $($_.Value)" }) -join ", "
+
+    # Open SQLite connection
+    Write-Verbose "Opening SQLite connection..."
     $connectionString = "Data Source=$dbPath;Version=3;"
     $connection = New-Object System.Data.SQLite.SQLiteConnection($connectionString)
 
     if (-not $connection) {
-        Write-Error "Error: Failed to create SQLite connection (null)."
+        Write-Error "Error: SQLite connection could not be created."
         return
     }
 
     try {
         $connection.Open()
-    } catch {
-        Write-Error "Error: Failed to open SQLite connection. $_"
-        return
-    }
-
-    try {
-        # Extract properties from the first object to define columns
-        $columns = $data[0].PSObject.Properties.Name
-        $columnDefs = @()
-
-        foreach ($col in $columns) {
-            # Handle null values in the first row by defaulting to TEXT type
-            $value = $data[0].$col
-            if ($value -eq $null) {
-                $colType = "TEXT"
-            } else {
-                $colType = switch ($value.GetType().Name) {
-                    "Int32" { "INTEGER" }
-                    "Int64" { "INTEGER" }
-                    "Double" { "REAL" }
-                    "Decimal" { "REAL" }
-                    "Boolean" { "INTEGER" }
-                    "DateTime" { "TEXT" }
-                    "String" {
-                        if ($value -match '^(TRUE|FALSE)$') { "INTEGER" } # Convert TRUE/FALSE strings to INTEGER
-                        elseif ($value -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$') { "TEXT" } # ISO 8601 date
-                        else { "TEXT" }
-                    }
-                    default { "TEXT" }
-                }
-            }
-            $columnDefs += "`"$col`" $colType"
-        }
-
-        $columnsSql = ($columns | ForEach-Object { "`"$_`"" }) -join ", "
-        $columnDefsSql = $columnDefs -join ", "
-
-        # Create the table if it doesn't exist
-        $createTableCmd = "CREATE TABLE IF NOT EXISTS [$tableName] ($columnDefsSql);"
-        $createTable = $connection.CreateCommand()
-        $createTable.CommandText = $createTableCmd
-        $createTable.ExecuteNonQuery() | Out-Null
-
-        # Begin transaction for efficiency
-        $transaction = $connection.BeginTransaction()
-
-        if (-not $transaction) {
-            Write-Error "Error: Failed to create transaction (null)."
+        if (-not $connection.State -eq "Open") {
+            Write-Error "Error: SQLite connection failed to open."
             return
         }
+        Write-Verbose "SQLite connection opened successfully."
 
-        # Prepare the insert command
+        # Set WAL mode first
+        Write-Verbose "Enabling WAL mode..."
+        $walCmd = $connection.CreateCommand()
+        $walCmd.CommandText = "PRAGMA journal_mode=WAL;"
+        $walCmd.ExecuteNonQuery() | Out-Null
+        $walCmd.Dispose()
+
+        # Set busy_timeout
+        Write-Verbose "Setting busy timeout to $BusyTimeout ms..."
+        $timeoutCmd = $connection.CreateCommand()
+        $timeoutCmd.CommandText = "PRAGMA busy_timeout = $BusyTimeout;"
+        $timeoutCmd.ExecuteNonQuery() | Out-Null
+        $timeoutCmd.Dispose()
+
+        # Set SQLite to use OFF sync mode to reduce lock contention
+        Write-Verbose "Setting synchronous mode to OFF..."
+        $syncCmd = $connection.CreateCommand()
+        $syncCmd.CommandText = "PRAGMA synchronous = OFF;"
+        $syncCmd.ExecuteNonQuery() | Out-Null
+        $syncCmd.Dispose()
+
+        # Create table if it doesn't exist
+        Write-Verbose "Checking table existence..."
+        $createTableCmd = $connection.CreateCommand()
+        if ($createTableCmd) {
+            $createTableCmd.CommandText = "CREATE TABLE IF NOT EXISTS [$tableName] ($columnDefsSql);"
+            $createTableCmd.ExecuteNonQuery() | Out-Null
+            $createTableCmd.Dispose()
+        }
+
+        # Prepare insert command BEFORE opening transaction
+        Write-Verbose "Preparing insert command..."
         $insertCmd = $connection.CreateCommand()
-
         if (-not $insertCmd) {
-            Write-Error "Error: Failed to create insert command (null)."
+            Write-Error "Error: insertCmd is null." 
             return
         }
-
         $placeholders = ($columns | ForEach-Object { "@" + $_ }) -join ", "
         $insertCmd.CommandText = "INSERT INTO [$tableName] ($columnsSql) VALUES ($placeholders);"
 
-        # Define parameters for the insert command
         foreach ($col in $columns) {
             $param = $insertCmd.CreateParameter()
             $param.ParameterName = "@$col"
             $insertCmd.Parameters.Add($param) | Out-Null
         }
+        Write-Verbose "Insert command prepared successfully."
 
-        # Insert data into the table
+        # Start transaction AFTER insert command is built
+        Write-Verbose "Starting transaction..."
+        $transaction = $connection.BeginTransaction()
+        if (-not $transaction) {
+            Write-Error "Error: Failed to start transaction."
+            return
+        }
+        Write-Verbose "Transaction started successfully."
+
+        # Ensure `null` values do not cause errors during insertion
+        Write-Verbose "Starting data insertion..."
         foreach ($row in $data) {
             foreach ($col in $columns) {
-                # Force booleans and handle nulls correctly
-                $valueToInsert = if ($row.$col -eq $null) { 
-                    [DBNull]::Value  # Only convert true nulls to DBNull
-                } elseif ($row.$col -is [bool]) { 
-                    if ($row.$col) { 1 } else { 0 }  # Explicit boolean conversion
-                } elseif ($row.$col -is [string] -and $row.$col -match '^(TRUE|FALSE)$') {
-                    if ($row.$col -eq "TRUE") { 1 } else { 0 }  # Handle TRUE/FALSE strings
-                } elseif ($row.$col -is [string] -and $row.$col -eq "") {
-                    0  # Treat empty strings explicitly as 0 for booleans
-                } else { 
-                    $row.$col  # Pass other values as-is
+                $insertCmd.Parameters["@${col}"].Value = if ($row.$col -eq $null) { 
+                    [DBNull]::Value  # Ensure SQLite understands nulls
+                } else {
+                    switch ($row.$col) {
+                        { $_ -is [bool] } { if ($_) { 1 } else { 0 } }
+                        { $_ -is [string] -and $_ -match '^(TRUE|FALSE)$' } { if ($_ -eq "TRUE") { 1 } else { 0 } }
+                        { $_ -is [string] -and $_ -eq "" } { 0 }
+                        default { $_ }
+                    }
                 }
-
-                # Log what’s being assigned to parameters for debugging
-                Write-Verbose "Assigning value to @$col`: $valueToInsert"
-
-                $insertCmd.Parameters["@${col}"].Value = $valueToInsert
             }
 
             try {
-                $insertCmd.ExecuteNonQuery() | Out-Null
-            } catch {
-                Write-Error "Error during data insertion:"
-                Write-Error "SQL Command: $($insertCmd.CommandText)"
-                Write-Error "Parameter Values:"
-                foreach ($param in $insertCmd.Parameters) {
-                    Write-Error "  $($param.ParameterName) = $($param.Value)"
+                if ($insertCmd) {
+                    $insertCmd.ExecuteNonQuery() | Out-Null
+                } else {
+                    Write-Error "Error: insertCmd is null during execution."
+                    return
                 }
-                Write-Error "Exception Message: $($_.Exception.Message)"
-                Write-Error "Stack Trace: $($_.Exception.StackTrace)"
-                throw  # Re-throw to outer catch for handling
+            } catch {
+                Write-Error "Error during data insertion: $_"
+                return
             }
         }
+        Write-Verbose "Data insertion complete."
 
-        # Commit transaction and clean up
-        $transaction.Commit()
+        # Commit transaction
+        Write-Verbose "Committing transaction..."
+        if ($transaction) {
+            $transaction.Commit()
+            Write-Verbose "Transaction committed successfully."
+        } else {
+            Write-Error "Error: transaction is null before commit."
+            return
+        }
     } catch {
         Write-Error "Error importing data: $_. Exception Message: $($_.Exception.Message)"
-        Write-Error "Stack Trace: $($_.Exception.StackTrace)"
     } finally {
-        # Ensure cleanup even if errors occur
-        $connection.Close()
-        $connection.Dispose()
+        # clean up
+        Write-Verbose "Cleaning up resources..."
+        if ($insertCmd) { 
+            $insertCmd.Dispose() 
+        }
+        if ($transaction) { 
+            $transaction.Dispose() 
+        }
+        if ($connection) { 
+            $connection.Close()
+            $connection.Dispose()
+        }
+        Write-Verbose "Cleanup completed."
     }
 }
 
-$keySecretName   = '<SECRET NAME>'    # secret name in SecretStore vault which contains Google service acct .json key
-$initUser        = '<EMAIL ADDRESS>'  # User for retrieving user data
-$ignoreOrgUnits  = @('<ORG UNIT>')    # org units to exclude in user query
-$dbPath          = '<FILE PATH>'      # .db out file path (sqlite)
+$keySecretName  = '<SecretName>'           # secret name in SecretStore vault which contains Google service acct .json key
+$initUser       = '<EmailAddress>'         # User for retrieving user data
+$ignoreOrgUnits = @('<OrgUnit>')           # org units to exclude in user query
+$dbPath         = '<FilePath>'             # .db out file path (sqlite)
+$throttleLimit  = 16                       # Set max # of concurrent runspaces
 
-# Only proceed if executed with elevated privileges
-if (Test-ElevatedShell) {
+# only proceed if >= pwsh v7 (ForEach-Object -Parallel support)
+if (Check-PsVersion) {
 
-    # Add NuGet as trusted repository if not already
-    Add-NuGet
+    # only proceed if executed with elevated privileges (req by SQLite)
+    if (Test-ElevatedShell) {
 
-    # Install SQLite if not already
-    Install-SQLite
+        # Capture start time
+        $startTime = Get-Date
 
-    # ensure required assemblies are loaded into current session
-    $reqAssemblies = @('BouncyCastle', 'System.Data.Sqlite.Core')
-    Ensure-Assemblies -packageNames $reqAssemblies
+        # Add NuGet as trusted repository if not already
+        Add-NuGet
 
-    # ensure module dependencies are present
-    $reqModules = @('Microsoft.PowerShell.SecretManagement', 'Microsoft.PowerShell.SecretStore')
-    Ensure-Modules -moduleNames $reqModules
+        # Install SQLite if not already
+        Ensure-SQLite | Out-Null
 
-    # ensure key file contents are present in secretStore vault & configured for automated retrieval
-    Ensure-SecretStoreConfig -secretName $keySecretName
+        # ensure required assemblies are loaded into current session
+        $reqAssemblies = @('BouncyCastle', 'System.Data.Sqlite.Core')
+        Ensure-Assemblies -packageNames $reqAssemblies
 
-    # Retrieve all suspended users who have signed in previously, ignoring those who have never signed in & specified OU
-    $users = Get-Users -keySecretName $keySecretName -user $initUser -Suspended -IgnoreNeverSignedIn -IgnoreOrgUnits $ignoreOrgUnits
+        # ensure module dependencies are present
+        $reqModules = @('Microsoft.PowerShell.SecretManagement', 'Microsoft.PowerShell.SecretStore')
+        Ensure-Modules -moduleNames $reqModules
 
-    # Initialize array & counter for loop
-    $report = @()
-    $i = 0
+        # ensure key file contents are present in secretStore vault & configured for automated retrieval
+        Ensure-SecretStoreConfig -secretName $keySecretName
 
-    # Loop through each user to get their Drive usage
-    foreach ($user in $users) {
+        # retrieve secret from vault as secure string
+        $key = Get-Secret -Name $keySecretName
 
-        # Increment counter & print info to console
-        $i++
-        Write-Host "User Number: $i of $($users.count)" -ForegroundColor Cyan
-        Write-Host "Username: $($user.primaryEmail)"        
+        # Retrieve all suspended users who have signed in previously, ignoring those who have never signed in & specified OU
+        #$users = Get-Users -key $key -user $initUser -Suspended -IgnoreNeverSignedIn -IgnoreOrgUnits $ignoreOrgUnits
+        $users = Import-Csv "d:\users.csv"
 
-        # Initialize & get user's drive file metadata
-        $files = $null
-        $files = Get-UserOwnedDriveFileMetadata -user $user -keySecretName $keySecretName -Shared:$false -LastModifiedByOwner:$true
+        # get function definitions to pass to ForEach-Object -Parallel
+        $ensureAssembliesFunc              = ${function:Ensure-Assemblies}.ToString()
+        $getGoogleAccessTokenFunc          = ${function:Get-GoogleAccessToken}.ToString()
+        $convertToIso8601Func              = ${function:Convert-ToISO8601}.ToString()
+        $getUserOwnedDriveFileMetadataFunc = ${function:Get-UserOwnedDriveFileMetadata}.ToString()
+        $importSqliteDataFunc              = ${function:Import-SQLiteData}.ToString()
 
-        # If file metadata is found, insert into SQLite db
-        if ($files) { 
-            Import-SQLiteData -dbPath $dbPath -tableName 'data' -data $files 
-        }
+        # execute in parallel for each user
+        $users | ForEach-Object -Parallel {
 
-        # Print user's file count to console
-        Write-Host "File Count: $($files.Count)" -ForegroundColor Green
+            # invoke functions within isolated sessionstate
+            ${function:Ensure-Assemblies}              = $using:ensureAssembliesFunc
+            ${function:Get-GoogleAccessToken}          = $using:getGoogleAccessTokenFunc
+            ${function:Convert-ToISO8601}              = $using:convertToIso8601Func
+            ${function:Get-UserOwnedDriveFileMetadata} = $using:getUserOwnedDriveFileMetadataFunc
+            ${function:Import-SQLiteData}              = $using:importSqliteDataFunc
+
+            # load req assemblies
+            Ensure-Assemblies -packageNames $using:reqAssemblies | Out-Null
+
+            # get user file metadata via Google API call
+            $files = Get-UserOwnedDriveFileMetadata -user $_ -key $using:key -Shared:$false -LastModifiedByOwner:$true
+
+            # if files are found, chunk and write to db
+            $fileCount = 0
+            if ($files) { 
+                $fileCount = $files.Count
+                
+                # chunk files into batches <= 10000 (prevents prolonged db table locks halting runspace queue)
+                $chunkMax = 10000
+                for ($i = 0; $i -lt $files.Count; $i += $chunkMax) {
+                    $chunk = $files[$i..([math]::Min($i + $chunkMax - 1, $files.Count - 1))]
+
+                    if ($chunk) {
+                        Write-Host "Writing metadata for $($chunk.count) files to $dbPath" -ForegroundColor Cyan
+                        # write chunk to db
+                        Import-SQLiteData -dbPath $using:dbPath -tableName 'data' -data $chunk
+                    }
+                }
+            }
+            Write-Host "Retrieved metadata for $fileCount files for user: $($_.primaryEmail)"
+        } -ThrottleLimit $throttleLimit
+
+        # Capture end time and calculate duration
+        $endTime = Get-Date
+        $duration = $endTime - $startTime
+        Write-Host "Total execution time: $($duration.Hours)h $($duration.Minutes)m $($duration.Seconds)s"
     }
 }
