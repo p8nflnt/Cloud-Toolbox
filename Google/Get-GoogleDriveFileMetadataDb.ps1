@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     - Get each user from Google Workspace via API
-    - Get each user's drive file metadata from Google via API
+    - Get each user's drive file metadata from Google via API calls operating in parallel runspaces
     - Export all users' drive file metadata to SQLite database
 
 .NOTES
