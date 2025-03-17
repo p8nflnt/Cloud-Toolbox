@@ -865,8 +865,7 @@ if (Check-PsVersion) {
         $key = Get-Secret -Name $keySecretName
 
         # Retrieve all suspended users who have signed in previously, ignoring those who have never signed in & specified OU
-        #$users = Get-Users -key $key -user $initUser -Suspended -IgnoreNeverSignedIn -IgnoreOrgUnits $ignoreOrgUnits
-        $users = Import-Csv "d:\users.csv"
+        $users = Get-Users -key $key -user $initUser -Suspended -IgnoreNeverSignedIn -IgnoreOrgUnits $ignoreOrgUnits
 
         # get function definitions to pass to ForEach-Object -Parallel
         $ensureAssembliesFunc              = ${function:Ensure-Assemblies}.ToString()
