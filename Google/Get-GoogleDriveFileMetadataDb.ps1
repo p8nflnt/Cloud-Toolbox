@@ -62,25 +62,26 @@ Function Add-NuGet {
 # install SQLite executable using choco if not already
 # return exe path
 function Ensure-SQLite {
+    param (
+        [switch]$returnPath
+    )
     # Check if SQLite is already installed
     $sqliteInstalled = (Get-Command sqlite3 -ErrorAction SilentlyContinue)
     if ($sqliteInstalled) {
         Write-Host "SQLite installed."
-        return $($sqliteInstalled.Source)
+        if ($returnPath) { Write-Output $sqliteInstalled.Source }
+        return
     } else {
-        # Ensure script is run as admin
-        if (Test-ElevatedShell) {
-            # Ensure Chocolatey is installed
-            $chocoInstalled = (Get-Command choco -ErrorAction SilentlyContinue) -ne $null
-            if (-not $chocoInstalled) {
-                Write-Host "Installing Chocolatey..."
-                Invoke-Expression (New-Object Net.WebClient).DownloadString('https://chocolatey.org/install.ps1')
-            }
-            # Install SQLite using Chocolatey
-            Write-Host "Installing SQLite..."
-            choco install sqlite -y
-            Write-Host "Setup complete. SQLite version: $(sqlite3 --version)" -ForegroundColor Cyan
+        # Ensure Chocolatey is installed
+        $chocoInstalled = (Get-Command choco -ErrorAction SilentlyContinue) -ne $null
+        if (-not $chocoInstalled) {
+            Write-Host "Installing Chocolatey..."
+            Invoke-Expression (New-Object Net.WebClient).DownloadString('https://chocolatey.org/install.ps1')
         }
+        # Install SQLite using Chocolatey
+        Write-Host "Installing SQLite..."
+        choco install sqlite -y
+        Write-Host "Setup complete. SQLite version: $(sqlite3 --version)" -ForegroundColor Cyan
     }
 }
 
@@ -349,33 +350,6 @@ function Get-GoogleAccessToken {
         [int]$ttl = 3600        # Token time-to-live in seconds (3600 default)
     )
 
-    # Convert SecureString to plain text JSON
-    $plainKeyFileContent = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
-        [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($key)
-    )
-
-    # Parse JSON to extract necessary information
-    $jsonContent = $plainKeyFileContent | ConvertFrom-Json
-    $svcAcct = $jsonContent.client_email
-
-    # JWT Header
-    $header = @{
-        alg = "RS256"
-        typ = "JWT"
-    } | ConvertTo-Json | Out-String
-
-    # JWT Payload
-    $now = [int](Get-Date -Date (Get-Date).ToUniversalTime() -UFormat %s)
-    $exp = $now + $ttl # Token expiration
-    $payload = @{
-        iss   = $svcAcct 
-        scope = $scope # OAuth permission scope(s)
-        aud   = "https://oauth2.googleapis.com/token" # Audience
-        sub   = $user # Email of the user to impersonate
-        iat   = [math]::floor((Get-Date).ToUniversalTime().Subtract([datetime]'1970-01-01').TotalSeconds)
-        exp   = [math]::floor((Get-Date).ToUniversalTime().AddSeconds($ttl).Subtract([datetime]'1970-01-01').TotalSeconds)
-    } | ConvertTo-Json -Compress
-
     # Function for Base64 URL-safe encoding
     function Encode-UrlBase64 {
         param([byte[]]$inputBytes)
@@ -384,16 +358,42 @@ function Get-GoogleAccessToken {
         return $base64
     }
 
+    # JWT Header
+    $header = @{
+        alg = "RS256"
+        typ = "JWT"
+    } | ConvertTo-Json | Out-String
+
+    # get times for payload
+    $now = [math]::floor((Get-Date).ToUniversalTime().Subtract([datetime]'1970-01-01').TotalSeconds)
+    $exp = $now + $ttl
+
+    # Convert SecureString directly to plaintext for JSON parsing
+    $jsonContent = ( [System.Net.NetworkCredential]::new("", $key).Password ) | ConvertFrom-Json
+    $svcAcct = $jsonContent.client_email
+
+    # JWT Payload
+    $payload = @{
+        iss   = $svcAcct 
+        scope = $scope # OAuth permission scope(s)
+        aud   = "https://oauth2.googleapis.com/token" # Audience
+        sub   = $user # Email of the user to impersonate
+        iat   = $now
+        exp   = $exp
+    } | ConvertTo-Json -Compress
+
     # Convert Header and Payload to Base64
-    $headerBase64 = Encode-UrlBase64 -inputBytes ([System.Text.Encoding]::UTF8.GetBytes($header))
+    $headerBase64  = Encode-UrlBase64 -inputBytes ([System.Text.Encoding]::UTF8.GetBytes($header))
     $payloadBase64 = Encode-UrlBase64 -inputBytes ([System.Text.Encoding]::UTF8.GetBytes($payload))
 
     # Extract private key from JSON file
     $pvtKeyString = $jsonContent.private_key -replace "-----BEGIN PRIVATE KEY-----", "" -replace "-----END PRIVATE KEY-----", "" -replace "\s+", ""
+    $jsonContent = $null # clear variable to minimize exposure
     $pvtKeyBytes = [Convert]::FromBase64String($pvtKeyString)
 
     # Convert the private key into an RSA key using BouncyCastle's PrivateKeyFactory
     $pvtKeyInfo = [Org.BouncyCastle.Asn1.Pkcs.PrivateKeyInfo]::GetInstance($pvtKeyBytes)
+    $pvtKeyBytes = $null # clear variable to minimize exposure 
     $pvtKey = [Org.BouncyCastle.Security.PrivateKeyFactory]::CreateKey($pvtKeyInfo)
 
     # Create the signer object for RSA/SHA256
@@ -447,20 +447,16 @@ Function Get-Users {
     # Get new access token from Google for user
     $accessToken = Get-GoogleAccessToken -scope $tokenScope -key $key -user $user
 
-    #initialization
-    $users = @()
-
     do {
+        # build & append query to url
         $url = "https://admin.googleapis.com/admin/directory/v1/users?customer=my_customer&maxResults=500&projection=full"
-
-        # Add query filter for suspended users if the switch is specified
-        if ($Suspended) {
-            $url += "&query=isSuspended=true"
+        if ($Suspended) { 
+            $query = "&query=isSuspended=true"
+            $url += $query
         }
 
-        if ($nextPageToken) {
-            $url += "&pageToken=$nextPageToken"
-        }
+        # append next page token if present
+        if ($nextPageToken) { $url += "&pageToken=$nextPageToken" }
 
         $response = Invoke-RestMethod -Uri $url -Headers @{
             Authorization = "Bearer $accessToken"
@@ -469,27 +465,22 @@ Function Get-Users {
 
         # Apply filtering
         $filteredUsers = $response.users
-
         # Filter out users who have never signed in if the switch is specified
-        if ($IgnoreNeverSignedIn) {
-            $filteredUsers = $filteredUsers | Where-Object { $_.lastLoginTime -and $_.lastLoginTime -ne "1/1/1970 12:00:00 AM" }
-        }
-
+        if ($IgnoreNeverSignedIn) { $filteredUsers = $filteredUsers | Where-Object { $_.lastLoginTime -and $_.lastLoginTime -ne "1/1/1970 12:00:00 AM" } }
         # Filter out users belonging to specified Org Units
-        if ($IgnoreOrgUnits) {
-            $filteredUsers = $filteredUsers | Where-Object { $_.orgUnitPath -notin $IgnoreOrgUnits }
-        }
+        if ($IgnoreOrgUnits) { $filteredUsers = $filteredUsers | Where-Object { $_.orgUnitPath -notin $IgnoreOrgUnits } }
 
-        $users += $filteredUsers
+        # handle nextPage token from response
         $nextPageToken = $response.nextPageToken
 
-    } while ($nextPageToken)
+        # output filtered users
+        Write-Output $filteredUsers
 
-    return $users
+    } while ($nextPageToken)
 }
 
 # converts datetimes to SQLite-friendly ISO8601 standard
-function Convert-ToISO8601 {
+function ConvertTo-ISO8601 {
     param (
         [Parameter(Mandatory = $true)]
         [string]$date
@@ -547,41 +538,23 @@ function Get-UserOwnedDriveFileMetadata {
     # generate access token for user
     $accessToken = Get-GoogleAccessToken -scope $tokenScope -key $key -user $user.primaryEmail
 
-    # Initialize query components
-    $query = @()
-
-    # Add ownership filter
-    $query += "'me' in owners"
-
+    # Build query
+    $query = "'me' in owners" # Add ownership filter
     # Convert dates and build query components only if parameters are specified
-    if ($ModifiedAfter) {
-        $query += "modifiedTime > '$ModifiedAfter'"
-    }
-    if ($ModifiedBefore) {
-        $query += "modifiedTime < '$ModifiedBefore'"
-    }
-
-    # Determine if a query is needed
-    $queryString = if ($query.Count -gt 0) {
-        "q=" + [System.Uri]::EscapeDataString($query -join " and ")
-    }
-    else { "" }
+    if ($ModifiedAfter)  { $query += " and modifiedTime > '$ModifiedAfter'"  }
+    if ($ModifiedBefore) { $query += " and modifiedTime < '$ModifiedBefore'" }
+    $query = "q=" + [System.Uri]::EscapeDataString($query) # construct URL-safe encoded query
 
     # Construct the base URI
     $baseUri = "https://www.googleapis.com/drive/v3/files"
     $pageSizeParam = "pageSize=1000"
     $fieldsParam = "fields=nextPageToken,files(id,name,owners,size,lastModifyingUser,modifiedTime,shared)"
-    $files = @()
+    $files = New-Object 'System.Collections.Generic.List[object]'
     $pageToken = $null
 
     do {
         # Construct URI for this iteration
-        $uri = if ($queryString -ne "") {
-            "$baseUri`?$queryString`&$fieldsParam`&$pageSizeParam"
-        }
-        else {
-            "$baseUri`?$fieldsParam`&$pageSizeParam"
-        }
+        $uri = "$baseUri`?$query`&$fieldsParam`&$pageSizeParam"
         if ($pageToken) {
             $uri += "&pageToken=$pageToken"
         }
@@ -591,7 +564,7 @@ function Get-UserOwnedDriveFileMetadata {
             $response = Invoke-RestMethod -Uri $uri `
                 -Headers @{ "Authorization" = "Bearer $AccessToken" } `
                 -Method Get
-            $files += $response.files
+            $files.AddRange($response.files)
         
             $pageToken = $response.nextPageToken
         }
@@ -625,8 +598,8 @@ function Get-UserOwnedDriveFileMetadata {
         $file | Add-Member -MemberType NoteProperty -Name ownerLastLogin -Value $user.lastLoginTime -Force
 
         # convert datetimes to ISO8601 standard (sqlite-friendly)
-        $file.modifiedTime = Convert-ToISO8601 -date $file.modifiedTime
-        $file.ownerLastLogin = Convert-ToISO8601 -date $file.ownerLastLogin
+        $file.modifiedTime = ConvertTo-ISO8601 -date $file.modifiedTime
+        $file.ownerLastLogin = ConvertTo-ISO8601 -date $file.ownerLastLogin
     }
 
     # Filter for shared files
@@ -829,11 +802,11 @@ function Import-SQLiteData {
     }
 }
 
-$keySecretName  = '<SecretName>'           # secret name in SecretStore vault which contains Google service acct .json key
-$initUser       = '<EmailAddress>'         # User for retrieving user data
-$ignoreOrgUnits = @('<OrgUnit>')           # org units to exclude in user query
-$dbPath         = '<FilePath>'             # .db out file path (sqlite)
-$throttleLimit  = 16                       # Set max # of concurrent runspaces
+$keySecretName  = '<SecretName>'     # secret name in SecretStore vault which contains Google service acct .json key
+$initUser       = '<EmailAddress>'   # User for retrieving user data
+$ignoreOrgUnits = @('</OrgUnit>')    # org units to exclude in user query
+$dbPath         = '<FilePath>'       # .db out file path (sqlite)
+$throttleLimit  = 16                 # Set max # of concurrent runspaces
 
 # only proceed if >= pwsh v7 (ForEach-Object -Parallel support)
 if (Check-PsVersion) {
@@ -848,7 +821,7 @@ if (Check-PsVersion) {
         Add-NuGet
 
         # Install SQLite if not already
-        Ensure-SQLite | Out-Null
+        Ensure-SQLite
 
         # ensure required assemblies are loaded into current session
         $reqAssemblies = @('BouncyCastle', 'System.Data.Sqlite.Core')
@@ -864,23 +837,18 @@ if (Check-PsVersion) {
         # retrieve secret from vault as secure string
         $key = Get-Secret -Name $keySecretName
 
-        # Retrieve all suspended users who have signed in previously, ignoring those who have never signed in & specified OU
-        $users = Get-Users -key $key -user $initUser -Suspended -IgnoreNeverSignedIn -IgnoreOrgUnits $ignoreOrgUnits
-
-        # get function definitions to pass to ForEach-Object -Parallel
+        # get function definitions to pass to scriptblock isolated sessionState
         $ensureAssembliesFunc              = ${function:Ensure-Assemblies}.ToString()
         $getGoogleAccessTokenFunc          = ${function:Get-GoogleAccessToken}.ToString()
-        $convertToIso8601Func              = ${function:Convert-ToISO8601}.ToString()
+        $convertToIso8601Func              = ${function:ConvertTo-ISO8601}.ToString()
         $getUserOwnedDriveFileMetadataFunc = ${function:Get-UserOwnedDriveFileMetadata}.ToString()
         $importSqliteDataFunc              = ${function:Import-SQLiteData}.ToString()
 
-        # execute in parallel for each user
-        $users | ForEach-Object -Parallel {
-
-            # invoke functions within isolated sessionstate
+        $scriptBlock = {
+            # invoke functions within isolated sessionState
             ${function:Ensure-Assemblies}              = $using:ensureAssembliesFunc
             ${function:Get-GoogleAccessToken}          = $using:getGoogleAccessTokenFunc
-            ${function:Convert-ToISO8601}              = $using:convertToIso8601Func
+            ${function:ConvertTo-ISO8601}              = $using:convertToIso8601Func
             ${function:Get-UserOwnedDriveFileMetadata} = $using:getUserOwnedDriveFileMetadataFunc
             ${function:Import-SQLiteData}              = $using:importSqliteDataFunc
 
@@ -901,14 +869,18 @@ if (Check-PsVersion) {
                     $chunk = $files[$i..([math]::Min($i + $chunkMax - 1, $files.Count - 1))]
 
                     if ($chunk) {
-                        Write-Host "Writing metadata for $($chunk.count) files to $dbPath" -ForegroundColor Cyan
+                        Write-Host "Writing metadata for $($chunk.count) files to $using:dbPath at $(Get-Date)" -ForegroundColor Cyan
                         # write chunk to db
                         Import-SQLiteData -dbPath $using:dbPath -tableName 'data' -data $chunk
                     }
                 }
             }
-            Write-Host "Retrieved metadata for $fileCount files for user: $($_.primaryEmail)"
-        } -ThrottleLimit $throttleLimit
+            Write-Host "Retrieved metadata for $fileCount files for user: $($_.primaryEmail) at $(Get-Date)"
+        }
+
+        # Retrieve all suspended users who have signed in previously, ignoring those who have never signed in & specified OU
+        Get-Users -key $key -user $initUser -Suspended -IgnoreNeverSignedIn -IgnoreOrgUnits $ignoreOrgUnits `
+        | ForEach-Object -Parallel $scriptBlock -ThrottleLimit $throttleLimit # invoke scriptblock with parallel runspaces
 
         # Capture end time and calculate duration
         $endTime = Get-Date
