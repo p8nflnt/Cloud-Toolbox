@@ -125,7 +125,7 @@ Function Ensure-Assemblies {
 
                 # check for loaded assembly by file name
                 $assemblies = [System.AppDomain]::CurrentDomain.GetAssemblies() # return all loaded assemblies
-                $assembly = $assemblies | Where-Object { $_.Location -and $_.Location -match $dllFileName } # query assemblies for matches
+                $assembly = $assemblies.Where({$_.Location -and $_.Location -match $dllFileName}) # query assemblies for matches
 
                 if (-not $assembly) {
 
@@ -466,9 +466,9 @@ Function Get-Users {
         # Apply filtering
         $filteredUsers = $response.users
         # Filter out users who have never signed in if the switch is specified
-        if ($IgnoreNeverSignedIn) { $filteredUsers = $filteredUsers | Where-Object { $_.lastLoginTime -and $_.lastLoginTime -ne "1/1/1970 12:00:00 AM" } }
+        if ($IgnoreNeverSignedIn) { $filteredUsers = $filteredUsers.Where({ $_.lastLoginTime -and $_.lastLoginTime -ne "1/1/1970 12:00:00 AM"}) }
         # Filter out users belonging to specified Org Units
-        if ($IgnoreOrgUnits) { $filteredUsers = $filteredUsers | Where-Object { $_.orgUnitPath -notin $IgnoreOrgUnits } }
+        if ($IgnoreOrgUnits) { $filteredUsers = $filteredUsers.Where({ $_.orgUnitPath -notin $IgnoreOrgUnits }) }
 
         # handle nextPage token from response
         $nextPageToken = $response.nextPageToken
@@ -603,20 +603,12 @@ function Get-UserOwnedDriveFileMetadata {
     }
 
     # Filter for shared files
-    if ($Shared -eq $false) {
-        $files = $files | Where-Object { $_.shared -eq $false }
-    }
-    elseif ($Shared -eq $true) {
-        $files = $files | Where-Object { $_.shared -eq $true }
-    }
+    if    ($Shared -eq $false) { $files = $files.Where({ $_.shared -eq $false}) }
+    elseif ($Shared -eq $true) { $files = $files.Where({ $_.shared -eq $true})  }
 
     # Filter for lastModifiedByOwner
-    if ($lastModifiedByOwner -eq $false) {
-        $files = $files | Where-Object { $_.LastModifiedByOwner -eq $false }
-    }
-    elseif ($lastModifiedByOwner -eq $true) {
-        $files = $files | Where-Object { $_.LastModifiedByOwner -eq $true }
-    }
+    if     ($lastModifiedByOwner -eq $false) { $files = $files.Where({ $_.LastModifiedByOwner -eq $false}) }
+    elseif ($lastModifiedByOwner -eq $true)  { $files = $files.Where({ $_.LastModifiedByOwner -eq $true)}  }
 
     # Return results
     return $files | Select-Object -Property Id, Name, Size, Owner, OwnerLastLogin, LastModifiedByOwner, ModifiedTime, Shared
