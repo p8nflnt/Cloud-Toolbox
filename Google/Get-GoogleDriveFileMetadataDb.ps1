@@ -802,6 +802,48 @@ function Import-SQLiteData {
     }
 }
 
+# get function definitions to pass to scriptblock isolated sessionState
+$ensureAssembliesFunc              = ${function:Ensure-Assemblies}.ToString()
+$getGoogleAccessTokenFunc          = ${function:Get-GoogleAccessToken}.ToString()
+$convertToIso8601Func              = ${function:ConvertTo-ISO8601}.ToString()
+$getUserOwnedDriveFileMetadataFunc = ${function:Get-UserOwnedDriveFileMetadata}.ToString()
+$importSqliteDataFunc              = ${function:Import-SQLiteData}.ToString()
+
+# scriptBlock for invocation with ForEach-Object -Parallel
+$scriptBlock = {
+    # invoke functions within isolated sessionState
+    ${function:Ensure-Assemblies}              = $using:ensureAssembliesFunc
+    ${function:Get-GoogleAccessToken}          = $using:getGoogleAccessTokenFunc
+    ${function:ConvertTo-ISO8601}              = $using:convertToIso8601Func
+    ${function:Get-UserOwnedDriveFileMetadata} = $using:getUserOwnedDriveFileMetadataFunc
+    ${function:Import-SQLiteData}              = $using:importSqliteDataFunc
+
+    # load req assemblies
+    Ensure-Assemblies -packageNames $using:reqAssemblies | Out-Null
+
+    # get user file metadata via Google API call
+    $files = Get-UserOwnedDriveFileMetadata -user $_ -key $using:key -Shared:$false -LastModifiedByOwner:$true
+
+    # if files are found, chunk and write to db
+    $fileCount = 0
+    if ($files) { 
+        $fileCount = $files.Count
+                
+        # chunk files into batches <= 10000 (prevents prolonged db table locks halting runspace queue)
+        $chunkMax = 10000
+        for ($i = 0; $i -lt $files.Count; $i += $chunkMax) {
+            $chunk = $files[$i..([math]::Min($i + $chunkMax - 1, $files.Count - 1))]
+
+            if ($chunk) {
+                Write-Host "Writing metadata for $($chunk.count) files to $using:dbPath at $(Get-Date)" -ForegroundColor Cyan
+                # write chunk to db
+                Import-SQLiteData -dbPath $using:dbPath -tableName 'data' -data $chunk
+            }
+        }
+    }
+    Write-Host "Retrieved metadata for $fileCount files for user: $($_.primaryEmail) at $(Get-Date)"
+}
+
 $keySecretName  = '<SecretName>'     # secret name in SecretStore vault which contains Google service acct .json key
 $initUser       = '<EmailAddress>'   # User for retrieving user data
 $ignoreOrgUnits = @('</OrgUnit>')    # org units to exclude in user query
@@ -836,47 +878,6 @@ if (Check-PsVersion) {
 
         # retrieve secret from vault as secure string
         $key = Get-Secret -Name $keySecretName
-
-        # get function definitions to pass to scriptblock isolated sessionState
-        $ensureAssembliesFunc              = ${function:Ensure-Assemblies}.ToString()
-        $getGoogleAccessTokenFunc          = ${function:Get-GoogleAccessToken}.ToString()
-        $convertToIso8601Func              = ${function:ConvertTo-ISO8601}.ToString()
-        $getUserOwnedDriveFileMetadataFunc = ${function:Get-UserOwnedDriveFileMetadata}.ToString()
-        $importSqliteDataFunc              = ${function:Import-SQLiteData}.ToString()
-
-        $scriptBlock = {
-            # invoke functions within isolated sessionState
-            ${function:Ensure-Assemblies}              = $using:ensureAssembliesFunc
-            ${function:Get-GoogleAccessToken}          = $using:getGoogleAccessTokenFunc
-            ${function:ConvertTo-ISO8601}              = $using:convertToIso8601Func
-            ${function:Get-UserOwnedDriveFileMetadata} = $using:getUserOwnedDriveFileMetadataFunc
-            ${function:Import-SQLiteData}              = $using:importSqliteDataFunc
-
-            # load req assemblies
-            Ensure-Assemblies -packageNames $using:reqAssemblies | Out-Null
-
-            # get user file metadata via Google API call
-            $files = Get-UserOwnedDriveFileMetadata -user $_ -key $using:key -Shared:$false -LastModifiedByOwner:$true
-
-            # if files are found, chunk and write to db
-            $fileCount = 0
-            if ($files) { 
-                $fileCount = $files.Count
-                
-                # chunk files into batches <= 10000 (prevents prolonged db table locks halting runspace queue)
-                $chunkMax = 10000
-                for ($i = 0; $i -lt $files.Count; $i += $chunkMax) {
-                    $chunk = $files[$i..([math]::Min($i + $chunkMax - 1, $files.Count - 1))]
-
-                    if ($chunk) {
-                        Write-Host "Writing metadata for $($chunk.count) files to $using:dbPath at $(Get-Date)" -ForegroundColor Cyan
-                        # write chunk to db
-                        Import-SQLiteData -dbPath $using:dbPath -tableName 'data' -data $chunk
-                    }
-                }
-            }
-            Write-Host "Retrieved metadata for $fileCount files for user: $($_.primaryEmail) at $(Get-Date)"
-        }
 
         # Retrieve all suspended users who have signed in previously, ignoring those who have never signed in & specified OU
         Get-Users -key $key -user $initUser -Suspended -IgnoreNeverSignedIn -IgnoreOrgUnits $ignoreOrgUnits `
