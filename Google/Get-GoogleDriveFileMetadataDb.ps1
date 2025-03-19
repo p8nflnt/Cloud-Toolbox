@@ -339,15 +339,15 @@ Function Ensure-SecretStoreConfig {
 function Get-GoogleAccessToken {
     param (
         [Parameter(Mandatory = $true)]
-        [string]$scope,         # OAuth permission scope(s) - multiple scopes should be space-separated
+        [string]$scope,                 # OAuth permission scope(s) - multiple scopes should be space-separated
 
         [Parameter(Mandatory = $true)]
-        [secureString]$key,     # key file contents from secureStore vault as secureString
+        [secureString]$key,             # Key file contents from secureStore vault as SecureString
 
         [Parameter(Mandatory = $true)]
-        [string]$user,          # Subject - Email of the user to impersonate
+        [string]$user,                  # Subject - Email of the user to impersonate
 
-        [int]$ttl = 3600        # Token time-to-live in seconds (3600 default)
+        [int]$ttl = 3600                # Token time-to-live in seconds (3600 default)
     )
 
     # Function for Base64 URL-safe encoding
@@ -358,72 +358,92 @@ function Get-GoogleAccessToken {
         return $base64
     }
 
-    # JWT Header
-    $header = @{
-        alg = "RS256"
-        typ = "JWT"
-    } | ConvertTo-Json | Out-String
+    try {
+        # JWT Header
+        $header = @{
+            alg = "RS256"
+            typ = "JWT"
+        } | ConvertTo-Json -Compress
 
-    # get times for payload
-    $now = [math]::floor((Get-Date).ToUniversalTime().Subtract([datetime]'1970-01-01').TotalSeconds)
-    $exp = $now + $ttl
+        # Get current & expiration times
+        $now = [datetimeOffset]::UtcNow.ToUnixTimeSeconds()
+        $exp = $now + $ttl
 
-    # Convert SecureString directly to plaintext for JSON parsing
-    $jsonContent = ( [System.Net.NetworkCredential]::new("", $key).Password ) | ConvertFrom-Json
-    $svcAcct = $jsonContent.client_email
+        # Convert SecureString to plaintext
+        $keyPlainText = [System.Net.NetworkCredential]::new("", $key).Password
+        $jsonContent = $keyPlainText | ConvertFrom-Json
 
-    # JWT Payload
-    $payload = @{
-        iss   = $svcAcct 
-        scope = $scope # OAuth permission scope(s)
-        aud   = "https://oauth2.googleapis.com/token" # Audience
-        sub   = $user # Email of the user to impersonate
-        iat   = $now
-        exp   = $exp
-    } | ConvertTo-Json -Compress
+        # Validate required fields in JSON
+        if (-not $jsonContent.client_email -or -not $jsonContent.private_key) {
+            throw "Invalid key file: Missing required fields."
+        }
 
-    # Convert Header and Payload to Base64
-    $headerBase64  = Encode-UrlBase64 -inputBytes ([System.Text.Encoding]::UTF8.GetBytes($header))
-    $payloadBase64 = Encode-UrlBase64 -inputBytes ([System.Text.Encoding]::UTF8.GetBytes($payload))
+        $svcAcct = $jsonContent.client_email
 
-    # Extract private key from JSON file
-    $pvtKeyString = $jsonContent.private_key -replace "-----BEGIN PRIVATE KEY-----", "" -replace "-----END PRIVATE KEY-----", "" -replace "\s+", ""
-    $jsonContent = $null # clear variable to minimize exposure
-    $pvtKeyBytes = [Convert]::FromBase64String($pvtKeyString)
+        # JWT Payload
+        $payload = @{
+            iss   = $svcAcct
+            scope = $scope
+            aud   = "https://oauth2.googleapis.com/token"
+            sub   = $user
+            iat   = $now
+            exp   = $exp
+        } | ConvertTo-Json -Compress
 
-    # Convert the private key into an RSA key using BouncyCastle's PrivateKeyFactory
-    $pvtKeyInfo = [Org.BouncyCastle.Asn1.Pkcs.PrivateKeyInfo]::GetInstance($pvtKeyBytes)
-    $pvtKeyBytes = $null # clear variable to minimize exposure 
-    $pvtKey = [Org.BouncyCastle.Security.PrivateKeyFactory]::CreateKey($pvtKeyInfo)
+        # Convert header & payload to Base64
+        $headerBase64 = Encode-UrlBase64 -inputBytes ([System.Text.Encoding]::UTF8.GetBytes($header))
+        $payloadBase64 = Encode-UrlBase64 -inputBytes ([System.Text.Encoding]::UTF8.GetBytes($payload))
 
-    # Create the signer object for RSA/SHA256
-    $signer = New-Object Org.BouncyCastle.Crypto.Signers.RsaDigestSigner ([Org.BouncyCastle.Crypto.Digests.Sha256Digest]::new())
-    $signer.Init($true, $pvtKey)
+        # Extract and clean private key
+        $pvtKeyString = $jsonContent.private_key -replace "-----BEGIN PRIVATE KEY-----", "" -replace "-----END PRIVATE KEY-----", "" -replace "\s+", ""
+        
+        # Securely overwrite and clear sensitive variables
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($key))
+        $keyPlainText = $null
+        $jsonContent = $null
 
-    # Create the unsigned JWT
-    $unsignedJwt = "$headerBase64.$payloadBase64"
+        # Convert private key to RSA format
+        $pvtKeyBytes = [Convert]::FromBase64String($pvtKeyString)
+        $pvtKeyString = $null # Clear after conversion
 
-    # Sign the JWT
-    $signer.BlockUpdate([System.Text.Encoding]::UTF8.GetBytes($unsignedJwt), 0, $unsignedJwt.Length)
-    $signature = $signer.GenerateSignature()
+        # Load RSA private key using .NET RSA crypto
+        $rsa = [System.Security.Cryptography.RSA]::Create()
+        $rsa.ImportPkcs8PrivateKey($pvtKeyBytes, [ref]$null)
+        $pvtKeyBytes = $null
 
-    # Convert signature to URL-safe base64
-    $signatureBase64 = Encode-UrlBase64 -inputBytes $signature
-    $jwt = "$unsignedJwt.$signatureBase64"
+        # Create unsigned JWT
+        $unsignedJwt = "$headerBase64.$payloadBase64"
 
-    # Exchange the JWT for an access token
-    $requestUri = "https://oauth2.googleapis.com/token"
-    $body = @{
-        grant_type = "urn:ietf:params:oauth:grant-type:jwt-bearer"
-        assertion  = $jwt
+        # Sign JWT using RSA-SHA256
+        $unsignedJwtBytes = [System.Text.Encoding]::UTF8.GetBytes($unsignedJwt)
+        $signature = $rsa.SignData($unsignedJwtBytes, [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
+
+        # Convert signature to URL-safe base64
+        $signatureBase64 = Encode-UrlBase64 -inputBytes $signature
+        $jwt = "$unsignedJwt.$signatureBase64"
+
+        # Exchange JWT for access token
+        $requestUri = "https://oauth2.googleapis.com/token"
+        $body = @{
+            grant_type = "urn:ietf:params:oauth:grant-type:jwt-bearer"
+            assertion  = $jwt
+        }
+
+        # POST JWT for access token
+        $response = Invoke-RestMethod -Uri $requestUri -Method POST -Body $body -ContentType "application/x-www-form-urlencoded"
+        
+        # Validate response
+        if (-not $response.access_token) {
+            throw "Failed to obtain access token."
+        }
+
+        return $response.access_token
+    } catch {
+        Write-Error "Error in Get-GoogleAccessToken: $_"
+        return $null
     }
-
-    # POST JWT for access token
-    $response = Invoke-RestMethod -Uri $requestUri -Method POST -Body $body -ContentType "application/x-www-form-urlencoded"
-
-    # Output the access token
-    return $response.access_token  
 }
+
 
 # Retrieve all users from Admin SDK, with an option to filter suspended users or orgUnits
 Function Get-Users {
@@ -858,7 +878,7 @@ if (Check-PsVersion) {
         Ensure-SQLite
 
         # ensure required assemblies are loaded into current session
-        $reqAssemblies = @('BouncyCastle', 'System.Data.Sqlite.Core')
+        $reqAssemblies = @('System.Data.Sqlite.Core')
         Ensure-Assemblies -packageNames $reqAssemblies
 
         # ensure module dependencies are present
