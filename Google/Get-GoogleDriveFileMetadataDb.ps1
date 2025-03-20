@@ -334,7 +334,6 @@ Function Ensure-SecretStoreConfig {
 }
 
 # retrieves token for user by email address
-# requires BouncyCastle for crypto
 # requires SecretStore/SecretManagement modules
 # security note: key file contents are unencrypted in memory temporarily during token generation
 function Get-GoogleAccessToken {
