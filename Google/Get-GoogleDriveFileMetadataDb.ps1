@@ -390,7 +390,7 @@ function Get-GoogleAccessToken {
         } | ConvertTo-Json -Compress
 
         # Convert header & payload to Base64
-        $headerBase64 = Encode-UrlBase64 -inputBytes ([System.Text.Encoding]::UTF8.GetBytes($header))
+        $headerBase64  = Encode-UrlBase64 -inputBytes ([System.Text.Encoding]::UTF8.GetBytes($header))
         $payloadBase64 = Encode-UrlBase64 -inputBytes ([System.Text.Encoding]::UTF8.GetBytes($payload))
 
         # Extract and clean private key
@@ -399,10 +399,10 @@ function Get-GoogleAccessToken {
         # Securely overwrite and clear sensitive variables
         [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($key))
         $keyPlainText = $null
-        $jsonContent = $null
+        $jsonContent  = $null
 
         # Convert private key to RSA format
-        $pvtKeyBytes = [Convert]::FromBase64String($pvtKeyString)
+        $pvtKeyBytes  = [Convert]::FromBase64String($pvtKeyString)
         $pvtKeyString = $null # Clear after conversion
 
         # Load RSA private key using .NET RSA crypto
@@ -518,7 +518,7 @@ function ConvertTo-ISO8601 {
 
         # build month, day, & format
         $i = 0; while ($i -lt $monthLength) { $i++; $month += 'M' }; $i = $null
-        $i = 0; while ($i -lt $dayLength) { $i++; $day += 'd'; }; $i = $null
+        $i = 0; while ($i -lt $dayLength)   { $i++; $day += 'd'   }; $i = $null
 
         # detect am/pm & build format accordingly for 12 or 24 hr time support
         if ($date -match "AM|PM") {
@@ -565,11 +565,11 @@ function Get-UserOwnedDriveFileMetadata {
     $query = "q=" + [System.Uri]::EscapeDataString($query) # construct URL-safe encoded query
 
     # Construct the base URI
-    $baseUri = "https://www.googleapis.com/drive/v3/files"
+    $baseUri       = "https://www.googleapis.com/drive/v3/files"
     $pageSizeParam = "pageSize=1000"
-    $fieldsParam = "fields=nextPageToken,files(id,name,owners,size,lastModifyingUser,modifiedTime,shared)"
-    $files = New-Object 'System.Collections.Generic.List[object]'
-    $pageToken = $null
+    $fieldsParam   = "fields=nextPageToken,files(id,name,owners,size,lastModifyingUser,modifiedTime,shared)"
+    $files         = New-Object 'System.Collections.Generic.List[object]'
+    $pageToken     = $null
 
     do {
         # Construct URI for this iteration
